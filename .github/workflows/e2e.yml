@@ -16,20 +16,49 @@ jobs:
     steps:
       - run: echo "Testing url ${{ github.event.inputs.deployPrimeUrl }}"
       - run: echo "Site name ${{ github.event.inputs.siteName }}"
+      - run: echo "App commit SHA ${{ github.event.inputs.commit }}"
 
   tests:
     runs-on: ubuntu-20.04
     steps:
       - name: Checkout
         uses: actions/checkout@v2
+
       # https://github.com/cypress-io/github-action
       # Installs and caches dependencies, runs all Cypress tests
       - name: Cypress run
         uses: cypress-io/github-action@v2
+        # let's give this action an ID so we can refer
+        # to its output values later
+        id: cypress
+        # Continue the build in case of an error, as we need to set the
+        # commit status in the next step, both in case of success and failure
+        continue-on-error: true
         with:
           # we want to test the URL passed by Netlify
           config: baseUrl=${{ github.event.inputs.deployPrimeUrl }}
           # store video and screenshots on Cypress Dashboard
-          record: false
+          record: true
         env:
           CYPRESS_RECORD_KEY: ${{ secrets.CYPRESS_RECORD_KEY }}
+
+      # after e2e tests finish, set the status back in the original repo
+      # https://github.com/marketplace/actions/github-status-action
+      - name: Set commit status
+        if: ${{ github.event.inputs.commit }}
+        uses: Sibz/github-status-action@v1
+        with:
+          # create personal GitHub token to be able to
+          # set status in other repositories
+          # https://github.com/settings/tokens/new
+          authToken: ${{secrets.PERSONAL_GITHUB_TOKEN}}
+          context: 'E2E tests'
+          description: 'Cypress ran the tests'
+          # state can be success, error, failure, or pending
+          # let's grab it from the Cypress step outcomes
+          # https://github.com/cypress-io/github-action#outputs
+          state: ${{ steps.cypress.outcome }}
+          owner: 'daffahilmyf'
+          repository: 'todomvc-no-tests'
+          sha: ${{github.event.inputs.commit}}
+          target_url: ${{ steps.cypress.outputs.dashboardUrl }}
